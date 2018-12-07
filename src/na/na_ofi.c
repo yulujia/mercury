@@ -136,7 +136,7 @@
         FI_PROGRESS_AUTO,                                               \
         (FI_MR_SCALABLE),                                               \
         (FI_DIRECTED_RECV),                                             \
-        (NA_OFI_VERIFY_PROV_DOM | NA_OFI_WAIT_FD)                       \
+        (NA_OFI_DOMAIN_LOCK | NA_OFI_VERIFY_PROV_DOM | NA_OFI_WAIT_FD)  \
     )                                                                   \
     X(NA_OFI_PROV_PSM2,                                                 \
         "psm2",                                                         \
