@@ -128,12 +128,21 @@
     X(NA_OFI_PROV_NULL, "", "", 0, 0, 0, 0, 0)                          \
     X(NA_OFI_PROV_SOCKETS,                                              \
         "sockets",                                                      \
-        "tcp",                                                          \
+        "",                                                             \
         FI_SOCKADDR_IN,                                                 \
         FI_PROGRESS_AUTO,                                               \
         (FI_MR_SCALABLE),                                               \
         (FI_DIRECTED_RECV),                                             \
         (NA_OFI_VERIFY_PROV_DOM | NA_OFI_WAIT_FD)                       \
+    )                                                                   \
+    X(NA_OFI_PROV_TCP,                                                  \
+        "tcp;ofi_rxm",                                                  \
+        "tcp",                                                          \
+        FI_SOCKADDR_IN,                                                 \
+        FI_PROGRESS_MANUAL,                                             \
+        (NA_OFI_MR_BASIC_REQ | FI_MR_LOCAL),                            \
+        (FI_DIRECTED_RECV),                                             \
+        NA_OFI_WAIT_FD                                                  \
     )                                                                   \
     X(NA_OFI_PROV_PSM2,                                                 \
         "psm2",                                                         \
