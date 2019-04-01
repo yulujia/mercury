@@ -63,7 +63,7 @@ if [[ $TRAVIS_OS_NAME == 'linux' ]]; then
   if [ ! -f "$PREFIX/bin/fi_info" ] || [ "${OFI_INSTALLED_VERSION}" != "${OFI_VERSION}" ]; then
     cd $HOME && wget https://github.com/ofiwg/libfabric/releases/download/v${OFI_VERSION}/libfabric-${OFI_VERSION}.tar.bz2
     tar -xjf libfabric-${OFI_VERSION}.tar.bz2;
-    cd libfabric-${OFI_VERSION} && ./configure --prefix=$PREFIX --disable-rxd --disable-rxm --disable-usnic --disable-static --disable-silent-rules CFLAGS="-O2 -g" && make -j2 -s && make install;
+    cd libfabric-${OFI_VERSION} && ./configure --prefix=$PREFIX --disable-rxd --disable-usnic --disable-mrail --disable-rstream --disable-static --disable-silent-rules CFLAGS="-O2 -g" && make -j2 -s && make install;
     echo "${OFI_VERSION}" > $PREFIX/ofi_version.txt
   else
     echo "Using cached directory for OFI";
