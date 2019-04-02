@@ -142,7 +142,7 @@
         FI_PROGRESS_MANUAL,                                             \
         (NA_OFI_MR_BASIC_REQ | FI_MR_LOCAL),                            \
         (FI_DIRECTED_RECV),                                             \
-        NA_OFI_WAIT_FD                                                  \
+        (NA_OFI_WAIT_FD | NA_OFI_NO_SEP)                                \
     )                                                                   \
     X(NA_OFI_PROV_PSM2,                                                 \
         "psm2",                                                         \
