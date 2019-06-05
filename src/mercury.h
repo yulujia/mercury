@@ -858,6 +858,8 @@ HG_Free_output(
  * to define the offset at which HG_Forward() / HG_Get_input() will start
  * encoding / decoding the input parameters.
  *
+ * \remark in_buf_size argument will be ignored if NULL
+ *
  * \param handle [IN]           HG handle
  * \param in_buf [OUT]          pointer to input buffer
  * \param in_buf_size [OUT]     pointer to input buffer size
@@ -881,6 +883,8 @@ HG_Get_input_buf(
  * To use proc routines conjunctively, HG_Class_set_output_offset() can be used
  * to define the offset at which HG_Respond() / HG_Get_output() will start
  * encoding / decoding the output parameters.
+ *
+ * \remark out_buf_size argument will be ignored if NULL
  *
  * \param handle [IN]           HG handle
  * \param out_buf [OUT]         pointer to output buffer
@@ -1006,7 +1010,7 @@ HG_Trigger(
  *
  * \param handle [IN]           HG handle
  *
- * \return HG_SUCCESS or corresponding HG error code
+ * \return HG_SUCCESS or HG_CANCEL_ERROR or corresponding HG error code
  */
 HG_EXPORT hg_return_t
 HG_Cancel(
