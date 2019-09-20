@@ -171,12 +171,12 @@ function(mercury_set_lib_options libtarget libname libtype)
     if(WIN32 AND NOT MINGW)
       set(LIB_RELEASE_NAME "${libname}")
       set(LIB_DEBUG_NAME "${libname}_D")
-      set(LIB_VERSION ${MERCURY_PACKAGE_VERSION_MAJOR})
     else()
       set(LIB_RELEASE_NAME "${libname}")
       set(LIB_DEBUG_NAME "${libname}_debug")
-      set(LIB_VERSION ${MERCURY_PACKAGE_VERSION})
     endif()
+    set(LIB_VERSION ${MERCURY_VERSION}.${MERCURY_VERSION_PATCH})
+    set(API_VERSION ${MERCURY_VERSION_MAJOR})
   else()
     if(WIN32 AND NOT MINGW)
       set(LIB_RELEASE_NAME "lib${libname}")
@@ -200,7 +200,7 @@ function(mercury_set_lib_options libtarget libname libtype)
       MINSIZEREL_OUTPUT_NAME     ${LIB_RELEASE_NAME}
       RELWITHDEBINFO_OUTPUT_NAME ${LIB_RELEASE_NAME}
       VERSION                    ${LIB_VERSION}
-      SOVERSION                  ${LIB_VERSION}
+      SOVERSION                  ${API_VERSION}
   )
 
   #----- Use MSVC Naming conventions for Shared Libraries
