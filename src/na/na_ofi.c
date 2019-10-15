@@ -1359,13 +1359,15 @@ na_ofi_av_insert(na_class_t *na_class, const void *addr, na_size_t addrlen,
         node_str = inet_ntoa(sin_addr->sin.sin_addr);
         sprintf (service_str, "%d", ntohs(sin_addr->sin.sin_port));
 
+        DBG_PRINT("calling fi_getinfo to resolve node %s, service %s\n",
+                node_str, service_str);
         /* Resolve node / service (always pass a numeric host) */
         rc = fi_getinfo(NA_OFI_VERSION, node_str,
-                0,
-//                service_str /* service */,
+//                0, /* service */
+                service_str /* service */,
                 0 /* flags */,
-                        0 /* hints */, &tmp_info);
-//                        domain->nod_prov /* hints */, &tmp_info);
+//                        0 /* hints */, &tmp_info);
+                        domain->nod_prov /* hints */, &tmp_info);
         if (rc != 0) {
             NA_LOG_ERROR("fi_getinfo (%s:%s) failed, rc: %d(%s).",
                          node_str, service_str, rc, fi_strerror(-rc));
@@ -2193,8 +2195,10 @@ na_ofi_endpoint_open(const struct na_ofi_domain *na_ofi_domain,
     hints->ep_attr->tx_ctx_cnt = max_contexts;
     hints->ep_attr->rx_ctx_cnt = max_contexts;
 
-    DBG_PRINT("node %s\n", node);
-    rc = fi_getinfo(NA_OFI_VERSION, node, NULL, flags, hints,
+    DBG_PRINT("server calling fi_getinfo to resolve node %s, service %s\n",
+                node, service);
+//    rc = fi_getinfo(NA_OFI_VERSION, node, NULL, flags, hints,
+    rc = fi_getinfo(NA_OFI_VERSION, node, service, flags, hints,
         &na_ofi_endpoint->noe_prov);
     if (rc != 0) {
         NA_LOG_ERROR("fi_getinfo(%s) failed, rc: %d(%s).", node,
