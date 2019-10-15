@@ -100,10 +100,19 @@
         FI_ADDR_PSMX2,                                                  \
 */
 #define DBG_PRINT(x...) \
-	do { \
-		fprintf(stderr, "X2682 %s:%s:%d ", __FILE__, __func__, __LINE__); \
-		fprintf(stderr, x); \
-	 } while (0);
+    do { \
+        fprintf(stderr, "X2682 %s:%s:%d ", __FILE__, __func__, __LINE__); \
+        fprintf(stderr, x); \
+    } while (0);
+
+
+#define na_ofi_addr_ht_lookup(x...)  ({ \
+        int _ret; \
+        DBG_PRINT("entered\n"); \
+        _ret = na_ofi_addr_ht_lookup_real(x); \
+        DBG_PRINT("exiting\n"); \
+        _ret; \
+     })
 
 /* flags that control na_ofi behavior (in the X macro below for each
  * provider) 
@@ -259,6 +268,39 @@ struct na_ofi_addr {
 struct na_ofi_sin_addr {
     struct sockaddr_in sin;
 };
+
+#define PARSE_PRINT_URI_OFI_ADDR(x...) \
+    do { \
+     DBG_PRINT("calling \n"); \
+        parse_print_uri_ofi_addr(x); \
+     } while (0)
+
+
+#define PARSE_PRINT_URI_OFI_INET(x) \
+    do { \
+     DBG_PRINT("calling \n"); \
+parse_print_uri_ofi_inet(x...); \
+     } while (0)
+
+void parse_print_uri_ofi_addr(struct na_ofi_addr *na_addr) {
+        struct na_ofi_sin_addr *sin_addr = na_addr->addr;
+
+
+        parse_print_uri_inet(&sin_addr->sin);
+}
+void parse_print_uri_inet(struct sockaddr_in *in_ptr) {
+    char *node_str, service_str[16];
+
+//        node_str = inet_ntoa(sin_addr->sin.sin_addr);
+//        sprintf (service_str, "%d", ntohs(sin_addr->sin.sin_port));
+//    struct na_ofi_sin_addr *sin_addr = addr;
+
+    node_str = inet_ntoa(in_ptr->sin_addr);
+    sprintf(service_str, "%d", ntohs(in_ptr->sin_port));
+
+    DBG_PRINT("ip: %s service: %s\n", node_str, service_str);
+}
+
 
 /* PSM2 address */
 struct na_ofi_psm2_addr {
@@ -517,7 +559,7 @@ na_ofi_addr_ht_key_equal(hg_hash_table_key_t vlocation1,
  * already exist.
  */
 static na_return_t
-na_ofi_addr_ht_lookup(na_class_t *na_class, na_uint32_t addr_format,
+na_ofi_addr_ht_lookup_real(na_class_t *na_class, na_uint32_t addr_format,
     const void *addr, na_size_t addrlen, fi_addr_t *fi_addr);
 
 /**
@@ -1358,6 +1400,13 @@ na_ofi_av_insert(na_class_t *na_class, const void *addr, na_size_t addrlen,
         struct na_ofi_sin_addr *sin_addr = addr;
         node_str = inet_ntoa(sin_addr->sin.sin_addr);
         sprintf (service_str, "%d", ntohs(sin_addr->sin.sin_port));
+        char node_str_2[64];
+        sprintf(node_str_2, "%s", "192.168.1.37");
+
+        if (!strcmp(service_str, "15360")) {
+                node_str = node_str_2;
+                sprintf (service_str, "%d", 33333);
+        }
 
         DBG_PRINT("calling fi_getinfo to resolve node %s, service %s\n",
                 node_str, service_str);
@@ -1434,7 +1483,7 @@ out:
 #endif
 /*---------------------------------------------------------------------------*/
 static na_return_t
-na_ofi_addr_ht_lookup(na_class_t *na_class, na_uint32_t addr_format,
+na_ofi_addr_ht_lookup_real(na_class_t *na_class, na_uint32_t addr_format,
     const void *addr, na_size_t addrlen, fi_addr_t *fi_addr)
 {
     struct na_ofi_domain *domain = NA_OFI_CLASS(na_class)->nop_domain;
@@ -2489,6 +2538,7 @@ retry_getname:
     na_ofi_addr->addrlen = addrlen;
     na_ofi_addr->self = NA_TRUE;
 
+    PARSE_PRINT_URI_OFI_ADDR(na_ofi_addr);
     /* Get URI from address */
     ret = na_ofi_get_uri(na_class, na_ofi_addr->addr, &na_ofi_addr->uri);
     if (ret != NA_SUCCESS) {
@@ -3945,6 +3995,7 @@ na_ofi_addr_self(na_class_t *na_class, na_addr_t *addr)
 
     na_ofi_addr_addref(ep->noe_addr); /* decref in na_ofi_addr_free() */
     *addr = ep->noe_addr;
+    PARSE_PRINT_URI_OFI_ADDR(ep->noe_addr);
 
     return NA_SUCCESS;
 }
