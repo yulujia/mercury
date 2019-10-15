@@ -1404,8 +1404,8 @@ na_ofi_av_insert(na_class_t *na_class, const void *addr, na_size_t addrlen,
         sprintf(node_str_2, "%s", "192.168.1.37");
 
         if (!strcmp(service_str, "15360")) {
-                node_str = node_str_2;
-                sprintf (service_str, "%d", 33333);
+//                node_str = node_str_2;
+//                sprintf (service_str, "%d", 33333);
         }
 
         DBG_PRINT("calling fi_getinfo to resolve node %s, service %s\n",
@@ -2533,6 +2533,15 @@ retry_getname:
         ret = NA_PROTOCOL_ERROR;
         goto out;
     }
+    // x2682 addr now contains fake ip:port number used by psm2. overwrite it 
+    // with the real uri. for non sep case the following need to change. right
+    // now all endpoints will get the base uri
+    //
+    //use inet_aton
+    struct sockaddr_in *my_sin_addr = addr;
+    my_sin_addr->sin_addr.s_addr = inet_addr(priv->nop_endpoint->noe_node);
+    my_sin_addr->sin_port = htons(atoi(priv->nop_endpoint->noe_service));
+    DBG_PRINT("setting port number: %d\n", priv->nop_endpoint->noe_service);
 
     na_ofi_addr->addr = addr;
     na_ofi_addr->addrlen = addrlen;
