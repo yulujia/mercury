@@ -1268,7 +1268,8 @@ na_ofi_av_insert(struct na_ofi_domain *domain, const void *addr,
     int rc = 0;
     int ret = 0;
 
-    if (na_ofi_prov_addr_format[domain->prov_type] == FI_ADDR_PSMX2) {
+    if (na_ofi_prov_addr_format[domain->prov_type] == FI_ADDR_PSMX2 ||
+        na_ofi_prov_addr_format[domain->prov_type] == FI_SOCKADDR_IN) {
         struct na_ofi_sin_addr *sin_addr = addr;
         node_str = inet_ntoa(sin_addr->sin.sin_addr);
         sprintf (service_str, "%d", ntohs(sin_addr->sin.sin_port));
@@ -1288,7 +1289,7 @@ na_ofi_av_insert(struct na_ofi_domain *domain, const void *addr,
     }
 
     na_ofi_domain_lock(domain);
-    rc = fi_av_insert(domain->fi_av, tmp_info->dest_addr, 1, fi_addr,
+    rc = fi_av_insert(domain->fi_av, addr, 1, fi_addr,
             0 /* flags */, NULL /* context */);
     na_ofi_domain_unlock(domain);
 
@@ -1323,6 +1324,8 @@ na_ofi_av_insert(struct na_ofi_domain *domain, const void *addr,
     free(peer_addr);
     */
 out:
+    if (tmp_info)
+        fi_freeinfo(tmp_info);
     return ret;
 }
 
