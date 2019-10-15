@@ -155,7 +155,7 @@ macro(add_mercury_test_comm test_name comm protocol busy)
   endif()
 
   # Set test arguments
-  set(test_args --comm ${comm} --protocol ${protocol})
+  set(test_args --comm ${comm} --protocol ${protocol} -H 192.168.1.36)
   if(${busy})
     set(test_args ${test_args} --busy)
   endif()
