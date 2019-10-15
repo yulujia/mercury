@@ -83,6 +83,7 @@
 /****************/
 /* Local Macros */
 /****************/
+#define UNUSED(x) (void)(x)
 
 /**
  * FI VERSION provides binary backward and forward compatibility support.
@@ -237,6 +238,7 @@ struct na_ofi_addr {
     struct na_ofi_domain *domain;           /* Domain                   */
     void *addr;                             /* Native address           */
     na_size_t addrlen;                      /* Native address len       */
+    void *ns_addr;                          /* address for nameserver   */
     char *uri;                              /* Generated URI            */
     fi_addr_t fi_addr;                      /* FI address               */
     na_uint64_t ht_key;                     /* Key in hash-table        */
@@ -254,6 +256,12 @@ struct na_ofi_sin_addr {
 struct na_ofi_psm2_addr {
     na_uint64_t addr0;
     na_uint64_t addr1;
+};
+
+/* PSM2 nameserver address */
+struct na_ofi_psm2_ns_addr {
+    char node_str[1024];
+    char  service_str[1024];
 };
 
 /* GNI address */
@@ -346,6 +354,8 @@ struct na_ofi_context {
 /* Endpoint */
 struct na_ofi_endpoint {
     struct na_ofi_addr *src_addr;           /* Endpoint address         */
+    char *src_node;                         /* Fabric address           */
+    char *src_service;                      /* Service name             */
     struct fi_info *fi_prov;                /* Provider info            */
     struct fid_ep *fi_ep;                   /* Endpoint handle          */
     struct fid_wait *fi_wait;               /* Wait set handle          */
@@ -460,6 +470,8 @@ static na_return_t
 na_ofi_str_to_psm2(const char *str, void **addr, na_size_t *len);
 static na_return_t
 na_ofi_str_to_gni(const char *str, void **addr, na_size_t *len);
+static na_return_t
+na_ofi_str_to_psm2_ns(const char *str, void **addr, na_size_t *len);
 
 /**
  * Convert the address to a 64-bit key to search corresponding FI addr.
@@ -472,6 +484,8 @@ static NA_INLINE na_uint64_t
 na_ofi_psm2_to_key(const struct na_ofi_psm2_addr *addr);
 static NA_INLINE na_uint64_t
 na_ofi_gni_to_key(const struct na_ofi_gni_addr *addr);
+static NA_INLINE na_uint64_t
+na_ofi_psm2_ns_to_key(const struct na_ofi_psm2_ns_addr *addr);
 
 /**
  * Key hash for hash table.
@@ -558,8 +572,9 @@ na_ofi_domain_close(struct na_ofi_domain *na_ofi_domain);
  */
 static na_return_t
 na_ofi_endpoint_open(const struct na_ofi_domain *na_ofi_domain,
-    const char *node, void *src_addr, na_size_t src_addrlen, na_bool_t no_wait,
-    na_uint8_t max_contexts, struct na_ofi_endpoint **na_ofi_endpoint_p);
+    const char *node, const char *service, void *src_addr,
+    na_size_t src_addrlen, na_bool_t no_wait, na_uint8_t max_contexts,
+    struct na_ofi_endpoint **na_ofi_endpoint_p);
 
 /**
  * Open basic endpoint.
@@ -697,7 +712,7 @@ na_ofi_msg_unexpected_op_pop(na_context_t *context);
  * Read from CQ.
  */
 static na_return_t
-na_ofi_cq_read(na_context_t *context, size_t max_count,
+na_ofi_cq_read(na_class_t *na_class, na_context_t *context, size_t max_count,
     struct fi_cq_tagged_entry cq_events[], fi_addr_t src_addrs[],
     void **src_err_addr, size_t *src_err_addrlen, size_t *actual_count);
 
@@ -1083,7 +1098,7 @@ na_ofi_str_to_addr(const char *str, na_uint32_t addr_format, void **addr,
         case FI_SOCKADDR_IN:
             return na_ofi_str_to_sin(str, addr, len);
         case FI_ADDR_PSMX2:
-            return na_ofi_str_to_psm2(str, addr, len);
+            return na_ofi_str_to_psm2_ns(str, addr, len);
         case FI_ADDR_GNI:
             return na_ofi_str_to_gni(str, addr, len);
         default:
@@ -1127,6 +1142,30 @@ na_ofi_str_to_sin(const char *str, void **addr, na_size_t *len)
 
 error:
     free(sin_addr);
+    return ret;
+}
+
+static na_return_t
+na_ofi_str_to_psm2_ns(const char *str, void **addr, na_size_t *len)
+{
+    UNUSED(len);
+    struct na_ofi_psm2_ns_addr *psm2_ns_addr;
+    psm2_ns_addr = calloc(1, sizeof(struct na_ofi_psm2_ns_addr));
+    int ret = 0;
+
+//    http://docs.roxen.com/pike/7.0/tutorial/strings/sscanf.xml
+    if (sscanf(str, "%*[^:]://:%s", psm2_ns_addr->service_str) == 1) {
+        /* nothing */
+    } else if ((sscanf(str, "%*[^:]://%15[^:]:%s", psm2_ns_addr->node_str,
+                psm2_ns_addr->service_str) == 2)
+        || (sscanf(str, "%*[^:]://%15[^:/]", psm2_ns_addr->node_str) == 1)) {
+        /* nothing */
+    } else
+        NA_GOTO_ERROR(error, ret, NA_PROTOCOL_ERROR,
+            "Malformed FI_ADDR_STR: %s\n", str);
+
+    *addr = psm2_ns_addr;
+error:
     return ret;
 }
 
@@ -1211,8 +1250,9 @@ na_ofi_addr_to_key(na_uint32_t addr_format, const void *addr, na_size_t len)
             assert(len == sizeof(struct na_ofi_sin_addr));
             return na_ofi_sin_to_key((const struct na_ofi_sin_addr *) addr);
         case FI_ADDR_PSMX2:
-            assert(len == sizeof(struct na_ofi_psm2_addr));
-            return na_ofi_psm2_to_key((const struct na_ofi_psm2_addr *) addr);
+//            assert(len == sizeof(struct na_ofi_psm2_ns_addr));
+            return na_ofi_psm2_ns_to_key((const struct na_ofi_psm2_ns_addr *) addr);
+//            return na_ofi_sin_to_key((const struct na_ofi_sin_addr *) addr);
         case FI_ADDR_GNI:
             assert(len == sizeof(struct na_ofi_gni_addr));
             return na_ofi_gni_to_key((const struct na_ofi_gni_addr *) addr);
@@ -1228,6 +1268,31 @@ na_ofi_sin_to_key(const struct na_ofi_sin_addr *addr)
 {
     return (((na_uint64_t) addr->sin.sin_addr.s_addr) << 32
         | addr->sin.sin_port);
+}
+
+static NA_INLINE unsigned int
+na_hash_string(const char *string)
+{
+    /* This is the djb2 string hash function */
+
+    unsigned int result = 5381;
+    const unsigned char *p;
+
+    p = (const unsigned char *) string;
+
+    while (*p != '\0') {
+        result = (result << 5) + result + *p;
+        ++p;
+    }
+    return result;
+}
+
+static NA_INLINE na_uint64_t
+na_ofi_psm2_ns_to_key(const struct na_ofi_psm2_ns_addr *addr)
+{
+    char tmp[1024];
+    sprintf(tmp, "%s:%s", addr->node_str, addr->service_str);
+    return na_hash_string(tmp);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1266,6 +1331,79 @@ na_ofi_addr_ht_key_equal(hg_hash_table_key_t vlocation1,
     return *((na_uint64_t *) vlocation1) == *((na_uint64_t *) vlocation2);
 }
 
+static na_return_t
+na_ofi_av_insert(struct na_ofi_domain *domain, const void *addr,
+    na_size_t addrlen, fi_addr_t *fi_addr)
+{
+    char *node_str, service_str[256];
+    struct fi_info *tmp_info = NULL;
+    int rc = 0;
+    int ret = 0;
+
+    UNUSED(addrlen);
+    if (na_ofi_prov_addr_format[domain->prov_type] == FI_ADDR_PSMX2) {
+//        struct na_ofi_sin_addr *sin_addr = addr;
+//        node_str = inet_ntoa(sin_addr->sin.sin_addr);
+//        sprintf (service_str, "%d", ntohs(sin_addr->sin.sin_port));
+        const struct na_ofi_psm2_ns_addr *ns_addr = addr;
+
+//        asprintf(node_str, "%s", ns_addr->node_str);
+        node_str = strdup(ns_addr->node_str);
+        snprintf(service_str, strlen(ns_addr->service_str) + 1, "%s", ns_addr->service_str);
+
+        /* Resolve node / service (always pass a numeric host) */
+        rc = fi_getinfo(NA_OFI_VERSION, node_str,
+            service_str /* service */,
+            0 /* flags */,
+            domain->fi_prov /* hints */, &tmp_info);
+        if (rc != 0) {
+            NA_LOG_ERROR("fi_getinfo (%s:%s) failed, rc: %d(%s).",
+                         node_str, service_str, rc, fi_strerror(-rc));
+            ret = NA_PROTOCOL_ERROR;
+            goto out;
+        }
+        addr = tmp_info->dest_addr;
+    }
+
+    na_ofi_domain_lock(domain);
+    rc = fi_av_insert(domain->fi_av, tmp_info->dest_addr, 1, fi_addr,
+            0 /* flags */, NULL /* context */);
+    na_ofi_domain_unlock(domain);
+
+    if (rc < 0) {
+        NA_LOG_ERROR("fi_av_insert/svc failed(node %s, service %s), rc: %d(%s).",
+                     node_str, service_str, rc, fi_strerror(-rc));
+        ret = NA_PROTOCOL_ERROR;
+        goto out;
+    }
+
+    /* The below just to verify the AV address resolution */
+    /*
+    void *peer_addr;
+    char peer_addr_str[NA_OFI_MAX_URI_LEN] = {'\0'};
+
+    peer_addr = malloc(addrlen);
+    if (peer_addr == NULL) {
+        NA_LOG_ERROR("Could not allocate peer_addr.");
+        ret = NA_NOMEM_ERROR;
+        goto out;
+    }
+    rc = fi_av_lookup(domain->fi_av, *fi_addr, peer_addr, &addrlen);
+    if (rc != 0) {
+        NA_LOG_ERROR("fi_av_lookup failed, rc: %d(%s).", rc, fi_strerror(-rc));
+        ret = NA_PROTOCOL_ERROR;
+        goto out;
+    }
+    addrlen = NA_OFI_MAX_URI_LEN;
+    fi_av_straddr(domain->fi_av, peer_addr, peer_addr_str, &addrlen);
+    NA_LOG_DEBUG("node %s, service %s, peer address %s.",
+                 node_str, service_str, peer_addr_str);
+    free(peer_addr);
+    */
+out:
+    return ret;
+}
+
 /*---------------------------------------------------------------------------*/
 static na_return_t
 na_ofi_addr_ht_lookup(struct na_ofi_domain *domain, na_uint32_t addr_format,
@@ -1293,10 +1431,8 @@ na_ofi_addr_ht_lookup(struct na_ofi_domain *domain, na_uint32_t addr_format,
     }
 
     /* Insert addr into AV if key not found */
-    na_ofi_domain_lock(domain);
-    rc = fi_av_insert(domain->fi_av, addr, 1, fi_addr, 0 /* flags */, NULL);
-    na_ofi_domain_unlock(domain);
-    NA_CHECK_ERROR(rc < 1, out, ret, NA_PROTOCOL_ERROR,
+    rc = na_ofi_av_insert(domain, addr, addrlen, fi_addr);
+    NA_CHECK_ERROR(rc != NA_SUCCESS, out, ret, NA_PROTOCOL_ERROR,
         "fi_av_insert() failed, rc: %d(%s)", rc, fi_strerror((int) -rc));
 
     hg_thread_rwlock_wrlock(&domain->rwlock);
@@ -1934,8 +2070,9 @@ out:
 /*---------------------------------------------------------------------------*/
 static na_return_t
 na_ofi_endpoint_open(const struct na_ofi_domain *na_ofi_domain,
-    const char *node, void *src_addr, na_size_t src_addrlen, na_bool_t no_wait,
-    na_uint8_t max_contexts, struct na_ofi_endpoint **na_ofi_endpoint_p)
+    const char *node, const char *service, void *src_addr,
+    na_size_t src_addrlen, na_bool_t no_wait, na_uint8_t max_contexts,
+    struct na_ofi_endpoint **na_ofi_endpoint_p)
 {
     struct na_ofi_endpoint *na_ofi_endpoint;
     struct fi_info *hints = NULL;
@@ -1949,6 +2086,22 @@ na_ofi_endpoint_open(const struct na_ofi_domain *na_ofi_domain,
     NA_CHECK_ERROR(na_ofi_endpoint == NULL, out, ret, NA_NOMEM_ERROR,
         "Could not allocate na_ofi_endpoint");
     memset(na_ofi_endpoint, 0, sizeof(struct na_ofi_endpoint));
+
+    /* Dup node string */
+    if (node && strcmp("\0", node)
+        && !(na_ofi_endpoint->src_node = strdup(node))) {
+        NA_LOG_ERROR("Could not duplicate node name");
+        ret = NA_NOMEM_ERROR;
+        goto out;
+    }
+
+    /* Dup service string */
+    if (service && strcmp("\0", service)
+            && !(na_ofi_endpoint->src_service = strdup(service))) {
+        NA_LOG_ERROR("Could not duplicate service name");
+        ret = NA_NOMEM_ERROR;
+        goto out;
+    }
 
     /* Dup fi_info */
     hints = fi_dupinfo(na_ofi_domain->fi_prov);
@@ -1967,7 +2120,7 @@ na_ofi_endpoint_open(const struct na_ofi_domain *na_ofi_domain,
     hints->ep_attr->tx_ctx_cnt = max_contexts;
     hints->ep_attr->rx_ctx_cnt = max_contexts;
 
-    rc = fi_getinfo(NA_OFI_VERSION, node, NULL, flags, hints,
+    rc = fi_getinfo(NA_OFI_VERSION, node, service, flags, hints,
         &na_ofi_endpoint->fi_prov);
     NA_CHECK_ERROR(rc != 0, out, ret, NA_PROTOCOL_ERROR,
         "fi_getinfo(%s) failed, rc: %d(%s)", node, rc, fi_strerror(-rc));
@@ -2186,16 +2339,21 @@ retry:
         free(addr);
         goto retry;
     }
-    NA_CHECK_ERROR(rc != 0, error, ret, NA_PROTOCOL_ERROR,
-        "fi_getname() failed, rc: %d(%s), addrlen: %zu", rc, fi_strerror(-rc),
-        addrlen);
 
-    na_ofi_addr->addr = addr;
-    na_ofi_addr->addrlen = addrlen;
-    na_ofi_addr->self = NA_TRUE;
+    /**
+     * addr now contains the ip:service string internal to psm2. overwrite it
+     * the external ip:port string
+     */
+//    struct sockaddr_in *my_sin_addr = addr;
+//    my_sin_addr->sin_addr.s_addr = inet_addr(priv->endpoint->src_node);
+//    my_sin_addr->sin_port = htons(atoi(priv->endpoint->src_service));
+//
+//    na_ofi_addr->addr = addr;
+//    na_ofi_addr->addrlen = addrlen;
+//    na_ofi_addr->self = NA_TRUE;
 
     /* Get URI from address */
-    ret = na_ofi_get_uri(na_class, na_ofi_addr->addr, &na_ofi_addr->uri);
+    ret = na_ofi_get_uri(na_class, na_ofi_addr->ns_addr, &na_ofi_addr->uri);
     NA_CHECK_NA_ERROR(error, ret, "Could not get URI from endpoint address");
 
     /* TODO check address size */
@@ -2214,6 +2372,7 @@ error:
 static na_return_t
 na_ofi_get_uri(na_class_t *na_class, const void *addr, char **uri_ptr)
 {
+    struct na_ofi_class *priv = NA_OFI_CLASS(na_class);
     struct na_ofi_domain *na_ofi_domain = NA_OFI_CLASS(na_class)->domain;
     char addr_str[NA_OFI_MAX_URI_LEN] = {'\0'},
         fi_addr_str[NA_OFI_MAX_URI_LEN] = {'\0'},
@@ -2222,21 +2381,33 @@ na_ofi_get_uri(na_class_t *na_class, const void *addr, char **uri_ptr)
     na_return_t ret = NA_SUCCESS;
     int rc;
 
-    /* Convert FI address to a printable string */
-    fi_av_straddr(na_ofi_domain->fi_av, addr, fi_addr_str, &fi_addr_strlen);
-    NA_CHECK_ERROR(fi_addr_strlen > NA_OFI_MAX_URI_LEN, out, ret,
-        NA_PROTOCOL_ERROR, "fi_av_straddr() address truncated, addrlen: %zu",
-        fi_addr_strlen);
-
-    /* Remove unnecessary "://" prefix from string if present */
-    if (strstr(fi_addr_str, "://")) {
-        strtok_r(fi_addr_str, ":", &fi_addr_str_ptr);
-        rc = strncmp(fi_addr_str_ptr, "//", 2);
-        NA_CHECK_ERROR(rc != 0, out, ret, NA_PROTOCOL_ERROR,
-            "Bad address string format");
-        fi_addr_str_ptr += 2;
-    } else
+    if (na_ofi_domain->prov_type == NA_OFI_PROV_PSM2) {
+        /* do not use fi_av_straddr(), as it returns the psm2 native URI */
+        snprintf(fi_addr_str, fi_addr_strlen, "%s:%s",
+            priv->endpoint->src_node, priv->endpoint->src_service);
         fi_addr_str_ptr = fi_addr_str;
+    } else {
+        /* Convert FI address to a printable string */
+        fi_av_straddr(na_ofi_domain->fi_av, addr, fi_addr_str, &fi_addr_strlen);
+        if (fi_addr_strlen > NA_OFI_MAX_URI_LEN) {
+            NA_LOG_ERROR("fi_av_straddr() address truncated, addrlen: %zu",
+                fi_addr_strlen);
+            ret = NA_PROTOCOL_ERROR;
+            goto out;
+        }
+
+        /* Remove unnecessary "://" prefix from string if present */
+        if (strstr(fi_addr_str, "://")) {
+            strtok_r(fi_addr_str, ":", &fi_addr_str_ptr);
+            if (strncmp(fi_addr_str_ptr, "//", 2) != 0) {
+                NA_LOG_ERROR("Bad address string format");
+                ret = NA_PROTOCOL_ERROR;
+                goto out;
+            }
+            fi_addr_str_ptr += 2;
+        } else
+            fi_addr_str_ptr = fi_addr_str;
+    }
 
     /* Generate URI */
     rc = snprintf(addr_str, NA_OFI_MAX_URI_LEN, "%s://%s",
@@ -2560,7 +2731,7 @@ na_ofi_msg_unexpected_op_pop(na_context_t *context)
 
 /*---------------------------------------------------------------------------*/
 static na_return_t
-na_ofi_cq_read(na_context_t *context, size_t max_count,
+na_ofi_cq_read(na_class_t *na_class, na_context_t *context, size_t max_count,
     struct fi_cq_tagged_entry cq_events[], fi_addr_t src_addrs[],
     void **src_err_addr, size_t *src_err_addrlen, size_t *actual_count)
 {
@@ -2600,13 +2771,37 @@ na_ofi_cq_read(na_context_t *context, size_t max_count,
 //                         cq_err.flags);
             goto out;
 
-        case FI_EADDRNOTAVAIL:
+        case FI_EADDRNOTAVAIL: {
+            struct na_ofi_class *priv = NA_OFI_CLASS(na_class);
+            struct fid_av *av_hdl = priv->domain->fi_av;
+            void *err_addr = NULL;
+            size_t err_addrlen;
+
+            /* Copy addr information */
+            err_addr = malloc(cq_err.err_data_size);
+            NA_CHECK_ERROR(err_addr == NULL, out, ret, NA_NOMEM_ERROR,
+                "Could not allocate err_addr");
+            err_addrlen = cq_err.err_data_size;
+            memcpy(err_addr, cq_err.err_data, err_addrlen);
+
+            na_ofi_domain_lock(priv->domain);
+            /* Insert new source addr into AV if address was not found */
+            rc = fi_av_insert(av_hdl, err_addr, 1, &src_addrs[0],
+                0 /* flags */, NULL /* context */);
+            na_ofi_domain_unlock(priv->domain);
+            if (unlikely(rc < 1)) {
+                free(err_addr);
+                NA_GOTO_ERROR(out, ret, NA_PROTOCOL_ERROR,
+                    "fi_av_insert() failed, rc: %d(%s)",
+                    rc, fi_strerror((int) -rc));
+            }
             /* Only one error event processed in that case */
             memcpy(&cq_events[0], &cq_err, sizeof(cq_events[0]));
             *src_err_addr = cq_err.err_data;
             *src_err_addrlen = cq_err.err_data_size;
             *actual_count = 1;
             break;
+        }
         case FI_EIO:
             NA_GOTO_ERROR(out, ret, NA_PROTOCOL_ERROR,
                 "fi_cq_readerr() got err: %d(%s), prov_errno: %d(%s)",
@@ -2914,6 +3109,7 @@ na_ofi_initialize(na_class_t *na_class, const struct na_info *na_info,
     char *host_name = NULL;
     unsigned int port = 0;
     const char *node_ptr = NULL;
+    char *service_str = NULL;
     char node[NA_OFI_MAX_URI_LEN] = {'\0'};
     char *domain_name_ptr = NULL;
     char domain_name[NA_OFI_MAX_URI_LEN] = {'\0'};
@@ -2952,9 +3148,8 @@ na_ofi_initialize(na_class_t *na_class, const struct na_info *na_info,
 
         /* Extract hostname */
         if (strstr(host_name, ":")) {
-            char *port_str = NULL;
-            strtok_r(host_name, ":", &port_str);
-            port = (unsigned int) strtoul(port_str, NULL, 10);
+            strtok_r(host_name, ":", &service_str);
+            port = (unsigned int) strtoul(service_str, NULL, 10);
         }
 
         /* Extract domain (if specified) */
@@ -2992,7 +3187,8 @@ na_ofi_initialize(na_class_t *na_class, const struct na_info *na_info,
                 strncpy(domain_name, resolve_name, NA_OFI_MAX_URI_LEN - 1);
                 domain_name_ptr = domain_name;
             }
-        } else if (na_ofi_prov_addr_format[prov_type] == FI_ADDR_GNI) {
+        } else if (na_ofi_prov_addr_format[prov_type] == FI_ADDR_GNI ||
+                   na_ofi_prov_addr_format[prov_type] == FI_ADDR_PSMX2) {
             struct na_ofi_sin_addr *na_ofi_sin_addr = NULL;
             const char *ptr;
 
@@ -3051,10 +3247,12 @@ na_ofi_initialize(na_class_t *na_class, const struct na_info *na_info,
         na_ofi_prov_name[prov_type], domain_name_ptr);
 
     /* Create endpoint */
-    ret = na_ofi_endpoint_open(priv->domain, node_ptr, src_addr, src_addrlen,
-        priv->no_wait, priv->max_contexts, &priv->endpoint);
-    NA_CHECK_NA_ERROR(out, ret, "Could not create endpoint for %s",
-        resolve_name);
+    ret = na_ofi_endpoint_open(priv->domain, node_ptr, service_str, src_addr,
+        src_addrlen, priv->no_wait, priv->max_contexts, &priv->endpoint);
+    if (ret != NA_SUCCESS) {
+        NA_LOG_ERROR("Could not create endpoint for %s", resolve_name);
+        goto out;
+    }
 
     /* Get address from endpoint */
     ret = na_ofi_get_ep_addr(na_class, &priv->endpoint->src_addr);
@@ -3369,6 +3567,7 @@ na_ofi_addr_lookup2(na_class_t *na_class, const char *name, na_addr_t *addr)
 {
     struct na_ofi_domain *domain = NA_OFI_CLASS(na_class)->domain;
     struct na_ofi_addr *na_ofi_addr = NULL;
+    void *tmp;
     na_return_t ret = NA_SUCCESS;
 
     /* Check provider from name */
@@ -3384,13 +3583,22 @@ na_ofi_addr_lookup2(na_class_t *na_class, const char *name, na_addr_t *addr)
         "strdup() of URI failed");
 
     /* Convert name to address */
+    if (na_ofi_prov_addr_format[domain->prov_type] == FI_ADDR_PSMX2)
+        tmp = &na_ofi_addr->ns_addr;
+    else
+        tmp = &na_ofi_addr->addr;
     ret = na_ofi_str_to_addr(name, na_ofi_prov_addr_format[domain->prov_type],
-        &na_ofi_addr->addr, &na_ofi_addr->addrlen);
+        tmp, &na_ofi_addr->addrlen);
+
     NA_CHECK_NA_ERROR(error, ret, "Could not convert string to address");
 
     /* Lookup address */
+    if (na_ofi_prov_addr_format[domain->prov_type] == FI_ADDR_PSMX2)
+        tmp = na_ofi_addr->ns_addr;
+    else
+        tmp = na_ofi_addr->addr;
     ret = na_ofi_addr_ht_lookup(domain,
-        na_ofi_prov_addr_format[domain->prov_type], na_ofi_addr->addr,
+        na_ofi_prov_addr_format[domain->prov_type], tmp,
         na_ofi_addr->addrlen, &na_ofi_addr->fi_addr, &na_ofi_addr->ht_key);
     NA_CHECK_NA_ERROR(error, ret, "na_ofi_addr_ht_lookup(%s) failed", name);
 
@@ -4352,8 +4560,8 @@ na_ofi_progress(na_class_t *na_class, na_context_t *context,
         }
 
         /* Read from CQ */
-        ret = na_ofi_cq_read(context, NA_OFI_CQ_EVENT_NUM, cq_events, src_addrs,
-            &src_err_addr_ptr, &src_err_addrlen, &actual_count);
+        ret = na_ofi_cq_read(na_class, context, NA_OFI_CQ_EVENT_NUM, cq_events,
+            src_addrs, &src_err_addr_ptr, &src_err_addrlen, &actual_count);
         NA_CHECK_NA_ERROR(out, ret,
             "Could not read events from context CQ");
 
