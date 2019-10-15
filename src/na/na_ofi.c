@@ -144,7 +144,8 @@
     X(NA_OFI_PROV_PSM2,                                                 \
         "psm2",                                                         \
         "",                                                             \
-        FI_ADDR_PSMX2,                                                  \
+//        FI_ADDR_PSMX2,                                                  \
+        FI_ADDR_IN,                                                     \
         FI_PROGRESS_AUTO,                                               \
         (FI_SOURCE | FI_SOURCE_ERR | FI_DIRECTED_RECV),                 \
         (NA_OFI_DOMAIN_LOCK | NA_OFI_WAIT_FD)                           \
